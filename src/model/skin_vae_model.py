@@ -10,7 +10,7 @@ import random
 import torch
 import torch.nn.functional as F
 
-from src.rig_package.info.asset import Asset
+from ..rig_package.info.asset import Asset
 
 from .spec import ModelSpec, ModelInput, VaeInput
 from .skin_vae.autoencoders import SkinFSQCVAEModel
