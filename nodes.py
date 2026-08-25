@@ -13,23 +13,18 @@ import urllib.parse
 
 import folder_paths
 
-# Add the current directory to sys.path to allow importing from src
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.insert(0, current_dir)
-
 # SkinTokens internal imports
-from src.data.dataset import DatasetConfig, RigDatasetModule
-from src.data.transform import Transform
-from src.model.tokenrig import TokenRigResult
-from src.tokenizer.parse import get_tokenizer
-from src.server.spec import (
+from .src.data.dataset import DatasetConfig, RigDatasetModule
+from .src.data.transform import Transform
+from .src.model.tokenrig import TokenRigResult
+from .src.tokenizer.parse import get_tokenizer
+from .src.server.spec import (
     BPY_SERVER,
     get_model,
     object_to_bytes,
     bytes_to_object,
 )
-from src.data.vertex_group import voxel_skin
+from .src.data.vertex_group import voxel_skin
 
 # =======================================================================
 # LAZY BPY SERVER LOGIC
