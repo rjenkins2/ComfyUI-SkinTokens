@@ -62,14 +62,93 @@ class TensorPacket:
     def from_bytes(cls, bytes) -> 'TensorPacket':
         return bytes_to_object(bytes)
 
+# Fix for object_to_bytes and bytes_to_object with relative paths.
+
+import pickle
+
+# Dotted name of the package this module lives in.
+#   ComfyUI:  "ComfyUI-SkinTokens.src"
+#   Blender:  "src"
+# When the two are equal the remap is a no-op, so the same code runs in both
+# processes with no branching.
+_LOCAL = __name__.rsplit(".", 2)[0]
+_WIRE = "src"
+
+_classes = None
+
+def _wire_classes():
+    """Build (Pickler, Unpickler) subclasses that rewrite _LOCAL <-> _WIRE."""
+    global _classes
+    if _classes is not None:
+        return _classes
+
+    import dill
+    from types import FunctionType
+    from dill._dill import (
+        MetaCatchingDict,
+        save_type as _stock_save_type,
+        save_function as _stock_save_function,
+    )
+
+    def _emit(pickler, obj, mod):
+        pickler.save(_WIRE + mod[len(_LOCAL):])
+        pickler.save(getattr(obj, "__qualname__", None) or obj.__name__)
+        pickler.write(pickle.STACK_GLOBAL)
+        pickler.memoize(obj)
+
+    def _local(obj):
+        mod = getattr(obj, "__module__", "") or ""
+        return mod if (mod == _LOCAL or mod.startswith(_LOCAL + ".")) else None
+
+    def _save_type(pickler, obj, *args, **kwargs):
+        mod = _local(obj)
+        if mod is not None:
+            return _emit(pickler, obj, mod)
+        return _stock_save_type(pickler, obj, *args, **kwargs)
+
+    def _save_function(pickler, obj, *args, **kwargs):
+        mod = _local(obj)
+        if mod is not None:
+            return _emit(pickler, obj, mod)
+        return _stock_save_function(pickler, obj, *args, **kwargs)
+
+    class WirePickler(dill.Pickler):
+        # dill dispatches type/function saving through this table, and its
+        # save_type calls StockPickler.save_global unbound, so overriding
+        # save_global on the subclass would not be reached.
+        dispatch = MetaCatchingDict(dill.Pickler.dispatch)
+
+    WirePickler.dispatch[type] = _save_type
+    WirePickler.dispatch[FunctionType] = _save_function
+
+    class WireUnpickler(dill.Unpickler):
+        def find_class(self, module, name):
+            if module == _WIRE or module.startswith(_WIRE + "."):
+                module = _LOCAL + module[len(_WIRE):]
+            return super().find_class(module, name)
+
+    _classes = (WirePickler, WireUnpickler)
+    return _classes
+
 
 def object_to_bytes(t):
     import dill
-    return dill.dumps(t)
+    if _LOCAL == _WIRE:
+        return dill.dumps(t)
+    pickler_cls, _ = _wire_classes()
+    buf = io.BytesIO()
+    # STACK_GLOBAL needs protocol 4 or newer
+    pickler_cls(buf, protocol=max(4, pickle.DEFAULT_PROTOCOL)).dump(t)
+    return buf.getvalue()
+
 
 def bytes_to_object(b, map_location=None):
     import dill
-    return dill.loads(b)
+    if _LOCAL == _WIRE:
+        return dill.loads(b)
+    _, unpickler_cls = _wire_classes()
+    return unpickler_cls(io.BytesIO(b)).load()
+
 
 def get_model(
     ckpt_path: str,
